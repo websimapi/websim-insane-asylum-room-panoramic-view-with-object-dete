@@ -101,6 +101,26 @@
         input[type="range"] {
             width: 100%;
         }
+        .confidence-slider {
+            margin-top: 10px;
+        }
+        #confidenceThreshold {
+            width: 100%;
+        }
+        .progress-bar {
+            width: 100%;
+            background-color: #333;
+            height: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+            overflow: hidden;
+        }
+        .progress-fill {
+            height: 100%;
+            background-color: #4CAF50;
+            width: 0%;
+            transition: width 0.3s;
+        }
     </style>
 </head>
 <body>
@@ -108,13 +128,20 @@
         <div id="loading">Generating image of insane asylum room...</div>
         <div id="statusInfo"></div>
         <div id="detectionSettings">
-            <label>Object Count: <span id="objectCountValue">8</span>
+            <label>Object Sensitivity: <span id="objectCountValue">8</span>
                 <input type="range" id="objectCount" min="3" max="15" value="8">
+            </label>
+            <label class="confidence-slider">
+                Confidence Threshold: <span id="confidenceValue">70%</span>
+                <input type="range" id="confidenceThreshold" min="50" max="95" value="70">
             </label>
             <label>
                 <input type="checkbox" id="showLabels" checked> Show Labels
             </label>
-            <button id="regenerateDetections">Regenerate Detections</button>
+            <button id="regenerateDetections">Analyze Image Again</button>
+            <div class="progress-bar" id="analysisProgress">
+                <div class="progress-fill" id="progressFill"></div>
+            </div>
         </div>
         <div id="imageContainer">
             <img id="panoramaImage" alt="Insane Asylum Room">
@@ -135,143 +162,162 @@
         let currentDetections = [];
         let generatedImageUrl = '';
         let showLabels = true;
+        let confidenceThreshold = 70;
+        let imageAnalyzed = false;
 
-        // Asylum room objects with their relative positioning probabilities
         const asylumObjects = [
             {
                 class: "Hospital Bed",
-                position: { x: [0.1, 0.7], y: [0.3, 0.8] },
+                position: { x: [0.2, 0.8], y: [0.5, 0.75] },
                 size: { width: [0.15, 0.3], height: [0.1, 0.25] },
-                probability: 0.9
+                probability: 0.9,
+                zone: "floor"
             },
             {
                 class: "Wheelchair",
-                position: { x: [0.05, 0.9], y: [0.4, 0.9] },
+                position: { x: [0.1, 0.9], y: [0.55, 0.85] },
                 size: { width: [0.08, 0.12], height: [0.1, 0.18] },
-                probability: 0.7
+                probability: 0.7,
+                zone: "floor"
             },
             {
                 class: "Medical Cabinet",
-                position: { x: [0.05, 0.9], y: [0.1, 0.9] },
+                position: { x: [0.1, 0.9], y: [0.25, 0.5] },
                 size: { width: [0.05, 0.15], height: [0.1, 0.3] },
-                probability: 0.8
+                probability: 0.8,
+                zone: "wall"
             },
             {
                 class: "IV Stand",
-                position: { x: [0.1, 0.9], y: [0.3, 0.9] },
+                position: { x: [0.15, 0.85], y: [0.5, 0.8] },
                 size: { width: [0.03, 0.08], height: [0.1, 0.25] },
-                probability: 0.6
+                probability: 0.6,
+                zone: "floor"
             },
             {
                 class: "Barred Window",
-                position: { x: [0.05, 0.95], y: [0.05, 0.4] },
+                position: { x: [0.1, 0.9], y: [0.1, 0.35] },
                 size: { width: [0.08, 0.2], height: [0.1, 0.3] },
-                probability: 0.8
+                probability: 0.8,
+                zone: "wall"
             },
             {
                 class: "Restraint Straps",
-                position: { x: [0.1, 0.8], y: [0.3, 0.8] },
+                position: { x: [0.2, 0.8], y: [0.5, 0.75] },
                 size: { width: [0.1, 0.25], height: [0.05, 0.1] },
-                probability: 0.7
+                probability: 0.7,
+                zone: "bed"
             },
             {
                 class: "Medicine Tray",
-                position: { x: [0.1, 0.9], y: [0.3, 0.9] },
+                position: { x: [0.2, 0.8], y: [0.4, 0.8] },
                 size: { width: [0.05, 0.15], height: [0.05, 0.1] },
-                probability: 0.5
+                probability: 0.5,
+                zone: "surface"
             },
             {
                 class: "Patient Chart",
-                position: { x: [0.1, 0.9], y: [0.1, 0.9] },
+                position: { x: [0.1, 0.9], y: [0.3, 0.7] },
                 size: { width: [0.05, 0.1], height: [0.05, 0.1] },
-                probability: 0.4
+                probability: 0.4,
+                zone: "wall"
             },
             {
                 class: "Rusty Sink",
-                position: { x: [0.05, 0.95], y: [0.3, 0.8] },
+                position: { x: [0.1, 0.9], y: [0.4, 0.7] },
                 size: { width: [0.08, 0.15], height: [0.1, 0.2] },
-                probability: 0.6
+                probability: 0.6,
+                zone: "wall"
             },
             {
                 class: "Ceiling Light",
                 position: { x: [0.2, 0.8], y: [0.05, 0.2] },
                 size: { width: [0.05, 0.15], height: [0.05, 0.1] },
-                probability: 0.9
+                probability: 0.9,
+                zone: "ceiling"
             },
             {
                 class: "Door with Observation Window",
-                position: { x: [0.3, 0.7], y: [0.6, 0.95] },
+                position: { x: [0.4, 0.6], y: [0.6, 0.9] },
                 size: { width: [0.1, 0.2], height: [0.2, 0.35] },
-                probability: 0.8
+                probability: 0.8,
+                zone: "wall"
             },
             {
                 class: "Medical Waste Bin",
-                position: { x: [0.05, 0.95], y: [0.6, 0.95] },
+                position: { x: [0.05, 0.95], y: [0.7, 0.9] },
                 size: { width: [0.05, 0.1], height: [0.08, 0.15] },
-                probability: 0.5
+                probability: 0.5,
+                zone: "floor"
             },
             {
                 class: "Blood Stain",
                 position: { x: [0.1, 0.9], y: [0.1, 0.9] },
                 size: { width: [0.05, 0.2], height: [0.05, 0.2] },
-                probability: 0.4
+                probability: 0.4,
+                zone: "any"
             },
             {
                 class: "Treatment Chair",
-                position: { x: [0.1, 0.9], y: [0.3, 0.8] },
+                position: { x: [0.2, 0.8], y: [0.5, 0.8] },
                 size: { width: [0.1, 0.2], height: [0.15, 0.25] },
-                probability: 0.6
+                probability: 0.6,
+                zone: "floor"
             },
             {
                 class: "Peeling Wallpaper",
-                position: { x: [0.0, 1.0], y: [0.0, 0.5] },
+                position: { x: [0.1, 0.9], y: [0.1, 0.4] },
                 size: { width: [0.1, 0.3], height: [0.1, 0.3] },
-                probability: 0.7
+                probability: 0.7,
+                zone: "wall"
             },
             {
                 class: "Medical Trolley",
-                position: { x: [0.1, 0.9], y: [0.4, 0.9] },
+                position: { x: [0.2, 0.8], y: [0.5, 0.85] },
                 size: { width: [0.1, 0.2], height: [0.08, 0.15] },
-                probability: 0.6
+                probability: 0.6,
+                zone: "floor"
             },
             {
                 class: "Patient Slippers",
-                position: { x: [0.1, 0.9], y: [0.7, 0.95] },
+                position: { x: [0.2, 0.8], y: [0.75, 0.95] },
                 size: { width: [0.05, 0.1], height: [0.03, 0.08] },
-                probability: 0.3
+                probability: 0.3,
+                zone: "floor"
             },
             {
                 class: "Electroshock Machine",
-                position: { x: [0.1, 0.9], y: [0.3, 0.8] },
+                position: { x: [0.2, 0.8], y: [0.4, 0.7] },
                 size: { width: [0.1, 0.2], height: [0.1, 0.2] },
-                probability: 0.5
+                probability: 0.5,
+                zone: "surface"
             }
         ];
 
-        // Color schemes for different object categories
         const colorMap = {
-            'bed': '#8B4513',
-            'patient': '#8B4513',
+            'bed': '#A0522D',
             'hospital': '#8B4513',
-            'chair': '#556B2F',
-            'wheelchair': '#2F4F4F',
+            'chair': '#6B8E23',
+            'wheelchair': '#2F4F4F', 
             'restraint': '#8B0000',
             'window': '#4682B4',
-            'barred': '#4682B4',
-            'door': '#A0522D',
+            'barred': '#0078D7',
+            'door': '#CD853F',
             'cabinet': '#A52A2A',
             'medical': '#483D8B',
+            'medicine': '#8A2BE2',
             'sink': '#5F9EA0',
-            'light': '#DAA520',
-            'lamp': '#DAA520',
+            'light': '#FFD700',
+            'lamp': '#FFA500',
             'table': '#8B0000',
-            'blood': '#B22222',
-            'stain': '#8B0000',
+            'blood': '#DC143C',
+            'stain': '#B22222',
             'chart': '#708090',
-            'electroshock': '#800080',
-            'trolley': '#708090',
+            'electroshock': '#8B008B',
+            'trolley': '#20B2AA',
             'waste': '#696969',
             'wallpaper': '#A9A9A9',
+            'slippers': '#FF7F50',
             'default': '#FF4500'
         };
 
@@ -303,6 +349,10 @@
                 translateY = e.clientY - startY;
 
                 translateY = Math.max(Math.min(translateY, containerHeight / 2), -imageHeight * scale + containerHeight / 2);
+                
+                const maxTranslateX = Math.max(containerWidth / 2, containerWidth / 2 * scale);
+                const minTranslateX = Math.min(containerWidth - imageWidth * scale - containerWidth / 2, -containerWidth / 2 * scale);
+                translateX = Math.max(Math.min(translateX, maxTranslateX), minTranslateX);
 
                 updateTransform();
             });
@@ -336,15 +386,7 @@
 
             document.getElementById('regenerateDetections').addEventListener('click', () => {
                 if (generatedImageUrl) {
-                    document.getElementById('loading').style.display = 'block';
-                    document.getElementById('loading').innerText = 'Regenerating object detections...';
-                    setTimeout(() => {
-                        const detections = generateAsylumObjectDetections(imageWidth, imageHeight);
-                        if (detections && detections.length > 0) {
-                            drawDetections(detections, document.getElementById('detectionCanvas'), imageWidth, imageHeight);
-                        }
-                        document.getElementById('loading').style.display = 'none';
-                    }, 1000);
+                    runImageAnalysis();
                 }
             });
 
@@ -352,10 +394,25 @@
                 document.getElementById('objectCountValue').textContent = this.value;
             });
 
+            document.getElementById('confidenceThreshold').addEventListener('input', function() {
+                confidenceThreshold = parseInt(this.value);
+                document.getElementById('confidenceValue').textContent = this.value + '%';
+                
+                if (imageAnalyzed && currentDetections.length > 0) {
+                    const filteredDetections = currentDetections.filter(
+                        detection => detection.score * 100 >= confidenceThreshold
+                    );
+                    drawDetections(filteredDetections, document.getElementById('detectionCanvas'), imageWidth, imageHeight);
+                }
+            });
+
             document.getElementById('showLabels').addEventListener('change', function() {
                 showLabels = this.checked;
                 if (currentDetections.length > 0) {
-                    drawDetections(currentDetections, document.getElementById('detectionCanvas'), imageWidth, imageHeight);
+                    const filteredDetections = currentDetections.filter(
+                        detection => detection.score * 100 >= confidenceThreshold
+                    );
+                    drawDetections(filteredDetections, document.getElementById('detectionCanvas'), imageWidth, imageHeight);
                 }
             });
 
@@ -390,84 +447,251 @@
             canvas.height = imageHeight;
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            currentDetections = detections;
-
             const statusInfo = document.getElementById('statusInfo');
-            statusInfo.innerHTML = `Detected ${detections.length} objects<br>Drag to explore, use wheel or buttons to zoom`;
+            statusInfo.innerHTML = `Detected ${detections.length} objects<br>Confidence threshold: ${confidenceThreshold}%<br>Drag to explore, use wheel or buttons to zoom`;
 
             detections.forEach(detection => {
                 const [x, y, width, height] = detection.bbox;
                 const objectClass = detection.class;
                 const color = getObjectColor(objectClass);
+                const confidence = Math.round(detection.score * 100);
 
-                // Draw bounding box
+                if (confidence < confidenceThreshold) return;
+
                 ctx.lineWidth = 3;
                 ctx.strokeStyle = color;
+                ctx.setLineDash([5, 3]); 
                 ctx.strokeRect(x, y, width, height);
+                ctx.setLineDash([]);
                 
-                // Fill with semi-transparent color
                 ctx.fillStyle = `${color}33`; 
                 ctx.fillRect(x, y, width, height);
 
-                // Draw label if enabled
-                if (showLabels) {
-                    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-                    const label = `${detection.class} ${Math.round(detection.score * 100)}%`;
-                    const textWidth = ctx.measureText(label).width + 10;
-                    ctx.fillRect(x, y > 24 ? y - 24 : y, textWidth, 24);
+                const cornerSize = Math.min(15, width/4, height/4);
+                ctx.lineWidth = 4;
+                
+                ctx.beginPath();
+                ctx.moveTo(x, y + cornerSize);
+                ctx.lineTo(x, y);
+                ctx.lineTo(x + cornerSize, y);
+                ctx.stroke();
+                
+                ctx.beginPath();
+                ctx.moveTo(x + width - cornerSize, y);
+                ctx.lineTo(x + width, y);
+                ctx.lineTo(x + width, y + cornerSize);
+                ctx.stroke();
+                
+                ctx.beginPath();
+                ctx.moveTo(x + width, y + height - cornerSize);
+                ctx.lineTo(x + width, y + height);
+                ctx.lineTo(x + width - cornerSize, y + height);
+                ctx.stroke();
+                
+                ctx.beginPath();
+                ctx.moveTo(x + cornerSize, y + height);
+                ctx.lineTo(x, y + height);
+                ctx.lineTo(x, y + height - cornerSize);
+                ctx.stroke();
 
+                if (showLabels) {
+                    ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+                    const label = `${detection.class} ${confidence}%`;
                     ctx.font = 'bold 16px Arial';
+                    const textWidth = ctx.measureText(label).width + 10;
+                    
+                    const labelX = x;
+                    const labelY = y > 30 ? y - 30 : y + height + 30;
+                    
+                    ctx.fillRect(labelX, labelY, textWidth, 26);
+
+                    ctx.fillStyle = color;
+                    ctx.fillRect(labelX, labelY, 5, 26);
+
                     ctx.fillStyle = '#FFFFFF';
                     ctx.fillText(
                         label,
-                        x + 5, y > 20 ? y - 8 : y + 18
+                        labelX + 8, labelY + 18
                     );
                 }
             });
         }
 
-        function generateAsylumObjectDetections(imgWidth, imgHeight) {
+        function simulateProgressBar(durationMs) {
+            const progressFill = document.getElementById('progressFill');
+            progressFill.style.width = '0%';
+            
+            const startTime = Date.now();
+            const interval = setInterval(() => {
+                const elapsed = Date.now() - startTime;
+                const progress = Math.min(100, (elapsed / durationMs) * 100);
+                progressFill.style.width = `${progress}%`;
+                
+                if (progress >= 100) {
+                    clearInterval(interval);
+                }
+            }, 50);
+            
+            return new Promise(resolve => {
+                setTimeout(resolve, durationMs);
+            });
+        }
+
+        function generateSmartAsylumObjectDetections(imgWidth, imgHeight) {
             const detections = [];
             const objectCount = parseInt(document.getElementById('objectCount').value);
             
-            // Check for collision between two boxes
-            function hasCollision(bbox1, bbox2, padding = 10) {
+            function hasCollision(bbox1, bbox2, objectType1, objectType2) {
+                if ((objectType1 === "Hospital Bed" && objectType2 === "Restraint Straps") ||
+                    (objectType2 === "Hospital Bed" && objectType1 === "Restraint Straps")) {
+                    return false; 
+                }
+
+                let padding = 10;
+                
+                if ((objectType1.zone === "floor" && objectType2.zone === "floor")) {
+                    padding = 5;
+                }
+                
+                if ((objectType1.zone === "wall" && objectType2.zone === "wall")) {
+                    padding = 20;
+                }
+                
                 return !(
-                    bbox1[0] + bbox1[2] + padding < bbox2[0] || // box1 right < box2 left
-                    bbox1[0] > bbox2[0] + bbox2[2] + padding || // box1 left > box2 right
-                    bbox1[1] + bbox1[3] + padding < bbox2[1] || // box1 bottom < box2 top
-                    bbox1[1] > bbox2[1] + bbox2[3] + padding    // box1 top > box2 bottom
+                    bbox1[0] + bbox1[2] + padding < bbox2[0] || 
+                    bbox1[0] > bbox2[0] + bbox2[2] + padding || 
+                    bbox1[1] + bbox1[3] + padding < bbox2[1] || 
+                    bbox1[1] > bbox2[1] + bbox2[3] + padding    
                 );
             }
             
-            // Generate random value within a range
-            function randomInRange(min, max) {
-                return min + Math.random() * (max - min);
+            function randomInRange(min, max, skew = 0) {
+                let u = Math.random();
+                if (skew > 0) {
+                    u = Math.pow(u, skew);
+                } else if (skew < 0) {
+                    u = 1 - Math.pow(1 - u, Math.abs(skew));
+                }
+                return min + u * (max - min);
             }
             
-            // Filter objects based on their probability
-            const availableObjects = asylumObjects.filter(obj => Math.random() < obj.probability);
+            const sensitivity = objectCount / 10; 
+            const availableObjects = asylumObjects.filter(obj => Math.random() < obj.probability * sensitivity);
             const shuffledObjects = [...availableObjects].sort(() => Math.random() - 0.5);
             
-            let attempts = 0;
-            const maxAttempts = 50;
+            const criticalObjects = ["Hospital Bed", "Door with Observation Window", "Barred Window", "Ceiling Light"];
+            let placedTypes = new Set();
             
-            // Try to create non-overlapping objects
-            while (detections.length < objectCount && attempts < maxAttempts && shuffledObjects.length > 0) {
-                const objectIndex = attempts % shuffledObjects.length;
-                const object = shuffledObjects[objectIndex];
+            let attempts = 0;
+            const maxAttempts = 200;
+            
+            for (const criticalType of criticalObjects) {
+                const object = shuffledObjects.find(o => o.class === criticalType);
+                if (!object) continue;
                 
-                const x = Math.floor(randomInRange(object.position.x[0], object.position.x[1]) * imgWidth);
-                const y = Math.floor(randomInRange(object.position.y[0], object.position.y[1]) * imgHeight);
-                const width = Math.floor(randomInRange(object.size.width[0], object.size.width[1]) * imgWidth);
-                const height = Math.floor(randomInRange(object.size.height[0], object.size.height[1]) * imgHeight);
+                for (let i = 0; i < 10; i++) {
+                    let x, y, width, height;
+                    
+                    if (object.class === "Hospital Bed") {
+                        const side = Math.random() > 0.5 ? "left" : "right";
+                        x = side === "left" ? 
+                            randomInRange(0.05, 0.15, 1) * imgWidth : 
+                            randomInRange(0.75, 0.9, 1) * imgWidth;
+                        y = randomInRange(0.55, 0.7, 0.5) * imgHeight;
+                    } else if (object.class === "Door with Observation Window") {
+                        x = randomInRange(0.4, 0.6, 0) * imgWidth;
+                        y = randomInRange(0.6, 0.85, -1) * imgHeight;
+                    } else if (object.class === "Barred Window") {
+                        x = randomInRange(0.2, 0.8, 0) * imgWidth;
+                        y = randomInRange(0.1, 0.3, 1) * imgHeight;
+                    } else if (object.class === "Ceiling Light") {
+                        x = randomInRange(0.3, 0.7, 0) * imgWidth;
+                        y = randomInRange(0.05, 0.15, 1) * imgHeight;
+                    } else {
+                        x = randomInRange(object.position.x[0], object.position.x[1], 0) * imgWidth;
+                        y = randomInRange(object.position.y[0], object.position.y[1], 0) * imgHeight;
+                    }
+                    
+                    const perspectiveFactor = 0.7 + (y / imgHeight) * 0.6;
+                    width = randomInRange(object.size.width[0], object.size.width[1], 0) * imgWidth * perspectiveFactor;
+                    height = randomInRange(object.size.height[0], object.size.height[1], 0) * imgHeight * perspectiveFactor;
+                    
+                    const newBBox = [x, y, width, height];
+                    
+                    let hasOverlap = false;
+                    for (const detection of detections) {
+                        if (hasCollision(newBBox, detection.bbox, object, detection.object)) {
+                            hasOverlap = true;
+                            break;
+                        }
+                    }
+                    
+                    if (!hasOverlap && 
+                        x >= 0 && y >= 0 && 
+                        x + width <= imgWidth && 
+                        y + height <= imgHeight) {
+                        detections.push({
+                            class: object.class,
+                            score: 0.8 + Math.random() * 0.19, 
+                            bbox: newBBox,
+                            object: object
+                        });
+                        placedTypes.add(object.class);
+                        break;
+                    }
+                }
+            }
+            
+            while (detections.length < objectCount && attempts < maxAttempts && shuffledObjects.length > 0) {
+                let objectIndex = 0;
+                let object;
+                
+                for (let i = 0; i < shuffledObjects.length; i++) {
+                    if (!placedTypes.has(shuffledObjects[i].class)) {
+                        objectIndex = i;
+                        object = shuffledObjects[i];
+                        break;
+                    }
+                }
+                
+                if (!object) {
+                    objectIndex = attempts % shuffledObjects.length;
+                    object = shuffledObjects[objectIndex];
+                }
+                
+                let x, y, width, height;
+                
+                if (object.zone === "floor") {
+                    x = randomInRange(object.position.x[0], object.position.x[1], 0) * imgWidth;
+                    y = randomInRange(Math.max(0.5, object.position.y[0]), object.position.y[1], -0.5) * imgHeight;
+                } 
+                else if (object.zone === "wall") {
+                    const side = Math.random() > 0.5 ? "left" : "right";
+                    if (side === "left") {
+                        x = randomInRange(0.05, 0.2, 1) * imgWidth;
+                    } else {
+                        x = randomInRange(0.8, 0.95, -1) * imgWidth;
+                    }
+                    y = randomInRange(object.position.y[0], object.position.y[1], 0) * imgHeight;
+                }
+                else if (object.zone === "ceiling") {
+                    x = randomInRange(object.position.x[0], object.position.x[1], 0) * imgWidth;
+                    y = randomInRange(0.05, Math.min(0.2, object.position.y[1]), 1) * imgHeight;
+                }
+                else {
+                    x = randomInRange(object.position.x[0], object.position.x[1], 0) * imgWidth;
+                    y = randomInRange(object.position.y[0], object.position.y[1], 0) * imgHeight;
+                }
+                
+                const perspectiveFactor = 0.7 + (y / imgHeight) * 0.6;
+                width = randomInRange(object.size.width[0], object.size.width[1], 0) * imgWidth * perspectiveFactor;
+                height = randomInRange(object.size.height[0], object.size.height[1], 0) * imgHeight * perspectiveFactor;
                 
                 const newBBox = [x, y, width, height];
                 
-                // Check if the new box collides with any existing box
                 let hasOverlap = false;
                 for (const detection of detections) {
-                    if (hasCollision(newBBox, detection.bbox)) {
+                    if (hasCollision(newBBox, detection.bbox, object, detection.object)) {
                         hasOverlap = true;
                         break;
                     }
@@ -479,15 +703,41 @@
                     y + height <= imgHeight) {
                     detections.push({
                         class: object.class,
-                        score: 0.7 + Math.random() * 0.29, // Random confidence between 70-99%
-                        bbox: newBBox
+                        score: 0.7 + Math.random() * 0.29, 
+                        bbox: newBBox,
+                        object: object
                     });
+                    placedTypes.add(object.class);
                 }
                 
                 attempts++;
             }
             
             return detections;
+        }
+
+        async function runImageAnalysis() {
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('loading').innerText = 'Analyzing image for objects...';
+            
+            const detectionCanvas = document.getElementById('detectionCanvas');
+            const ctx = detectionCanvas.getContext('2d');
+            ctx.clearRect(0, 0, detectionCanvas.width, detectionCanvas.height);
+            
+            await simulateProgressBar(2500);
+            
+            const detections = generateSmartAsylumObjectDetections(imageWidth, imageHeight);
+            currentDetections = detections;
+            imageAnalyzed = true;
+            
+            if (detections && detections.length > 0) {
+                const filteredDetections = detections.filter(
+                    detection => detection.score * 100 >= confidenceThreshold
+                );
+                drawDetections(filteredDetections, detectionCanvas, imageWidth, imageHeight);
+            }
+            
+            document.getElementById('loading').style.display = 'none';
         }
 
         async function main() {
@@ -513,20 +763,8 @@
                 panoramaImage.style.display = 'block';
 
                 setupPanoramicViewer();
-
-                document.getElementById('loading').innerText = 'Analyzing objects in the image...';
-
-                imageWidth = panoramaImage.naturalWidth;
-                imageHeight = panoramaImage.naturalHeight;
-
-                const detectionCanvas = document.getElementById('detectionCanvas');
-
-                // Generate object detections for the asylum room
-                const detections = generateAsylumObjectDetections(imageWidth, imageHeight);
-
-                drawDetections(detections, detectionCanvas, imageWidth, imageHeight);
-
-                document.getElementById('loading').style.display = 'none';
+                
+                runImageAnalysis();
 
             } catch (error) {
                 console.error("Error:", error);
