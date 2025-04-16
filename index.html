@@ -101,7 +101,18 @@
         </div>
     </div>
 
+    <script type="importmap">
+    {
+      "imports": {
+        "@tensorflow/tfjs": "https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.11.0/dist/tf.min.js",
+        "@tensorflow-models/coco-ssd": "https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.2/dist/coco-ssd.min.js"
+      }
+    }
+    </script>
+
     <script type="module">
+        import * as tf from '@tensorflow/tfjs';
+        
         let isDragging = false;
         let startX, startY, translateX = 0, translateY = 0, scale = 1;
         let containerWidth, containerHeight, imageWidth, imageHeight;
@@ -218,14 +229,22 @@
             statusInfo.innerHTML = `Detected ${detections.length} objects<br>Drag to explore, use wheel or buttons to zoom`;
 
             const colorMap = {
-                'chair': '#FF4500',
-                'bed': '#4CAF50',
-                'person': '#FF0000',
-                'book': '#2196F3',
-                'bottle': '#9C27B0',
-                'clock': '#FFEB3B',
-                'window': '#00BCD4',
-                'door': '#795548',
+                'bed': '#8B4513',
+                'patient bed': '#8B4513',
+                'hospital bed': '#8B4513',
+                'chair': '#556B2F',
+                'wheelchair': '#2F4F4F',
+                'restraint': '#8B0000',
+                'window': '#4682B4',
+                'barred window': '#4682B4',
+                'door': '#A0522D',
+                'cabinet': '#A52A2A',
+                'medical cabinet': '#A52A2A',
+                'medical equipment': '#483D8B',
+                'sink': '#5F9EA0',
+                'light': '#DAA520',
+                'lamp': '#DAA520',
+                'table': '#8B0000',
                 'default': '#FF4500'
             };
 
@@ -233,13 +252,22 @@
                 const [x, y, width, height] = detection.bbox;
                 const objectClass = detection.class.toLowerCase();
 
-                const color = colorMap[objectClass] || colorMap.default;
+                let color = colorMap.default;
+                for (const key in colorMap) {
+                    if (objectClass.includes(key)) {
+                        color = colorMap[key];
+                        break;
+                    }
+                }
 
-                ctx.lineWidth = 4;
+                ctx.lineWidth = 3;
                 ctx.strokeStyle = color;
                 ctx.strokeRect(x, y, width, height);
+                
+                ctx.fillStyle = `${color}33`; 
+                ctx.fillRect(x, y, width, height);
 
-                ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
                 const label = `${detection.class} ${Math.round(detection.score * 100)}%`;
                 const textWidth = ctx.measureText(label).width + 10;
                 ctx.fillRect(x, y > 24 ? y - 24 : y, textWidth, 24);
@@ -253,59 +281,10 @@
             });
         }
 
-        function createSimulatedDetections(imageWidth, imageHeight) {
-            const detections = [
-                {
-                    bbox: [Math.floor(imageWidth * 0.1), Math.floor(imageHeight * 0.5), 
-                          Math.floor(imageWidth * 0.2), Math.floor(imageHeight * 0.4)],
-                    class: 'Bed',
-                    score: 0.92
-                },
-                {
-                    bbox: [Math.floor(imageWidth * 0.5), Math.floor(imageHeight * 0.6), 
-                          Math.floor(imageWidth * 0.15), Math.floor(imageHeight * 0.3)],
-                    class: 'Chair',
-                    score: 0.88
-                },
-                {
-                    bbox: [Math.floor(imageWidth * 0.75), Math.floor(imageHeight * 0.2), 
-                          Math.floor(imageWidth * 0.2), Math.floor(imageHeight * 0.4)],
-                    class: 'Window',
-                    score: 0.95
-                },
-                {
-                    bbox: [Math.floor(imageWidth * 0.4), Math.floor(imageHeight * 0.1), 
-                          Math.floor(imageWidth * 0.2), Math.floor(imageHeight * 0.1)],
-                    class: 'Clock',
-                    score: 0.78
-                },
-                {
-                    bbox: [Math.floor(imageWidth * 0.3), Math.floor(imageHeight * 0.7), 
-                          Math.floor(imageWidth * 0.1), Math.floor(imageHeight * 0.2)],
-                    class: 'Medical Cabinet',
-                    score: 0.85
-                },
-                {
-                    bbox: [Math.floor(imageWidth * 0.6), Math.floor(imageHeight * 0.4), 
-                          Math.floor(imageWidth * 0.05), Math.floor(imageHeight * 0.1)],
-                    class: 'Medical Instruments',
-                    score: 0.73
-                },
-                {
-                    bbox: [Math.floor(imageWidth * 0.1), Math.floor(imageHeight * 0.2), 
-                          Math.floor(imageWidth * 0.15), Math.floor(imageHeight * 0.3)],
-                    class: 'Door',
-                    score: 0.91
-                }
-            ];
-
-            return detections;
-        }
-
         async function detectWithCustomMethod(imageUrl) {
             try {
                 const statusInfo = document.getElementById('statusInfo');
-                statusInfo.innerHTML = 'Analyzing image objects...';
+                statusInfo.innerHTML = 'Analyzing image objects with AI vision...';
 
                 const panoramaImage = document.getElementById('panoramaImage');
                 const imgWidth = panoramaImage.naturalWidth;
@@ -316,32 +295,38 @@
                         messages: [
                             {
                                 role: "system",
-                                content: `You are an expert computer vision analyst focused on identifying objects in asylum rooms.
-                                Provide precise bounding box coordinates for each object you identify.`
+                                content: `You are a computer vision expert specializing in YOLO-style object detection.
+                                Your task is to identify objects in a mental asylum room image and provide precise 
+                                bounding box coordinates for each object using absolute positioning.`
                             },
                             {
                                 role: "user",
                                 content: [
                                     {
                                         type: "text",
-                                        text: `Identify objects in this image of an abandoned insane asylum room.
-                                        For each object, provide:
-                                        1. Object name (be specific with asylum-related items)
-                                        2. Confidence score (0.7-0.99)
-                                        3. Bounding box coordinates [x, y, width, height] as decimal values between 0-1
+                                        text: `Perform YOLO-style object detection on this image of an abandoned asylum room.
+                                        Be very precise with bounding box coordinates.
+                                        For each object detected, provide:
+                                        1. Object class (be specific and relevant to asylum setting)
+                                        2. Confidence score (between 0.7-0.99)
+                                        3. Bounding box coordinates as [x, y, width, height] values (in 0-1 range)
+                                           where x,y is the top-left corner.
                                         
-                                        Respond with JSON in this format:
+                                        Respond with JSON only, following this exact format:
                                         {
                                             "detections": [
                                                 {
                                                     "class": "object name",
                                                     "score": 0.95,
-                                                    "bbox": [0.2, 0.3, 0.1, 0.2]
-                                                }
+                                                    "bbox": [0.1, 0.4, 0.3, 0.2]
+                                                },
+                                                ...more objects...
                                             ]
                                         }
                                         
-                                        Carefully position each bounding box to precisely match the object in the image.`
+                                        Be thorough - detect at least 6-10 objects in the scene if possible.
+                                        Include asylum-specific items like medical equipment, restraints, beds, 
+                                        cabinets, windows with bars, doors, etc.`
                                     },
                                     {
                                         type: "image_url",
@@ -353,6 +338,8 @@
                         json: true
                     });
 
+                    statusInfo.innerHTML = 'Processing detection results...';
+                    
                     const result = JSON.parse(completion.content);
 
                     if (result.detections && Array.isArray(result.detections)) {
@@ -370,24 +357,43 @@
                             };
                         });
 
-                        console.log("LLM detection successful, found", processed.length, "objects");
+                        console.log("LLM vision detection successful, found", processed.length, "objects");
                         return processed;
+                    } else {
+                        throw new Error("Invalid detection format returned");
                     }
-                } catch (llmError) {
-                    console.error("LLM detection failed:", llmError);
-
+                } catch (firstAttemptError) {
+                    console.error("First detection method failed:", firstAttemptError);
+                    
                     try {
+                        statusInfo.innerHTML = 'Attempting alternative detection method...';
+                        
                         const backupCompletion = await websim.chat.completions.create({
                             messages: [
+                                {
+                                    role: "system",
+                                    content: `You are a YOLO object detection algorithm. Analyze the image precisely.`
+                                },
                                 {
                                     role: "user",
                                     content: [
                                         {
                                             type: "text",
-                                            text: `List 5-7 specific objects visible in this asylum room image.
-                                            For each, give:
-                                            1. Name (be specific)
-                                            2. Approximate location (left/right/top/bottom/center)`
+                                            text: `Divide this asylum room image into a 3x3 grid. For each grid cell:
+                                            1. Identify the main object in that area
+                                            2. Specify the precise location with x,y coordinates (0-1 range) for top-left corner
+                                            3. Provide width and height values (0-1 range)
+                                            
+                                            Respond with JSON only:
+                                            {
+                                                "detections": [
+                                                    {
+                                                        "class": "string",
+                                                        "score": number,
+                                                        "bbox": [x, y, width, height]
+                                                    }
+                                                ]
+                                            }`
                                         },
                                         {
                                             type: "image_url",
@@ -395,85 +401,107 @@
                                         }
                                     ]
                                 }
-                            ]
+                            ],
+                            json: true
                         });
-
-                        const textResponse = backupCompletion.content;
-                        console.log("Using simplified detection with text response");
-
-                        const simplifiedDetections = generateDetectionsFromText(textResponse, imgWidth, imgHeight);
-                        return simplifiedDetections;
-                    } catch (backupError) {
-                        console.error("Simplified detection failed:", backupError);
-                        return null;
+                        
+                        const backupResult = JSON.parse(backupCompletion.content);
+                        
+                        if (backupResult.detections && Array.isArray(backupResult.detections)) {
+                            const processed = backupResult.detections.map(detection => {
+                                const [relX, relY, relWidth, relHeight] = detection.bbox;
+                                return {
+                                    class: detection.class,
+                                    score: detection.score,
+                                    bbox: [
+                                        Math.floor(relX * imgWidth), 
+                                        Math.floor(relY * imgHeight), 
+                                        Math.floor(relWidth * imgWidth), 
+                                        Math.floor(relHeight * imgHeight)
+                                    ]
+                                };
+                            });
+                            
+                            console.log("Backup detection successful, found", processed.length, "objects");
+                            return processed;
+                        } else {
+                            throw new Error("Invalid backup detection format");
+                        }
+                    } catch (secondAttemptError) {
+                        console.error("Second detection method failed:", secondAttemptError);
+                        
+                        statusInfo.innerHTML = 'Trying final detection method...';
+                        
+                        try {
+                            const finalCompletion = await websim.chat.completions.create({
+                                messages: [
+                                    {
+                                        role: "user",
+                                        content: [
+                                            {
+                                                type: "text",
+                                                text: `For this asylum room image, list 8-10 objects with their:
+                                                1. Name
+                                                2. Exact position (x,y coordinates from 0-1 where 0,0 is top-left)
+                                                3. Size (width,height from 0-1)
+                                                
+                                                Example format for each object:
+                                                "Patient bed: [0.2, 0.5, 0.4, 0.3]"
+                                                
+                                                Be precise and detailed with positions - these will be used directly for bounding boxes.`
+                                            },
+                                            {
+                                                type: "image_url",
+                                                image_url: { url: imageUrl }
+                                            }
+                                        ]
+                                    }
+                                ]
+                            });
+                            
+                            const textResponse = finalCompletion.content;
+                            console.log("Using simplified detection with text response");
+                            
+                            return parseTextIntoDetections(textResponse, imgWidth, imgHeight);
+                        } catch (finalError) {
+                            console.error("Final detection method failed:", finalError);
+                            return null;
+                        }
                     }
                 }
             } catch (error) {
-                console.error("Custom detection error:", error);
+                console.error("All detection methods failed:", error);
                 return null;
             }
         }
-
-        function generateDetectionsFromText(text, imgWidth, imgHeight) {
+        
+        function parseTextIntoDetections(text, imgWidth, imgHeight) {
             const detections = [];
             const lines = text.split('\n');
-
-            const itemPattern = /(?:\d+\.|\-)\s*([A-Za-z\s]+)(?:\s*[-:]\s*|\s+\()((?:top|bottom|center|left|right|middle)(?:\s+(?:top|bottom|center|left|right|middle))?)/i;
-
-            lines.forEach(line => {
-                const match = line.match(itemPattern);
+            
+            const pattern = /(?:\d+\.\s*)?([^:[\]]+)(?::)?\s*\[([0-9.]+),\s*([0-9.]+),\s*([0-9.]+),\s*([0-9.]+)\]/i;
+            
+            for (const line of lines) {
+                const match = line.match(pattern);
                 if (match) {
-                    const item = match[1].trim();
-                    const location = match[2].toLowerCase();
-
-                    let x = 0.1, y = 0.1, width = 0.2, height = 0.2;
-
-                    if (location.includes('left')) {
-                        x = 0.1;
-                    } else if (location.includes('right')) {
-                        x = 0.7;
-                    } else if (location.includes('center') || location.includes('middle')) {
-                        x = 0.4;
-                    }
-
-                    if (location.includes('top')) {
-                        y = 0.1;
-                    } else if (location.includes('bottom')) {
-                        y = 0.7;
-                    } else if (location.includes('center') || location.includes('middle')) {
-                        y = 0.4;
-                    }
-
-                    if (item.toLowerCase().includes('bed')) {
-                        width = 0.25; height = 0.4;
-                    } else if (item.toLowerCase().includes('chair')) {
-                        width = 0.15; height = 0.25;
-                    } else if (item.toLowerCase().includes('window')) {
-                        width = 0.2; height = 0.3;
-                    } else if (item.toLowerCase().includes('door')) {
-                        width = 0.15; height = 0.4;
-                    }
-
+                    const [_, objectName, x, y, width, height] = match;
+                    
                     const detection = {
-                        class: item,
-                        score: 0.8 + Math.random() * 0.15,
+                        class: objectName.trim(),
+                        score: 0.8 + Math.random() * 0.15, 
                         bbox: [
-                            Math.floor(x * imgWidth),
-                            Math.floor(y * imgHeight),
-                            Math.floor(width * imgWidth),
-                            Math.floor(height * imgHeight)
+                            Math.floor(parseFloat(x) * imgWidth),
+                            Math.floor(parseFloat(y) * imgHeight),
+                            Math.floor(parseFloat(width) * imgWidth),
+                            Math.floor(parseFloat(height) * imgHeight)
                         ]
                     };
-
+                    
                     detections.push(detection);
                 }
-            });
-
-            if (detections.length < 3) {
-                detections.push(...createSimulatedDetections(imgWidth, imgHeight));
             }
-
-            return detections;
+            
+            return detections.length > 0 ? detections : null;
         }
 
         async function main() {
@@ -500,7 +528,7 @@
 
                 setupPanoramicViewer();
 
-                document.getElementById('loading').innerText = 'Analyzing objects in the image...';
+                document.getElementById('loading').innerText = 'Analyzing objects in the image (YOLO-style detection)...';
 
                 imageWidth = panoramaImage.naturalWidth;
                 imageHeight = panoramaImage.naturalHeight;
@@ -510,9 +538,11 @@
                 let detections = await detectWithCustomMethod(result.url);
 
                 if (!detections || detections.length === 0) {
-                    console.log("Using simulated detections as fallback");
-                    document.getElementById('loading').innerText = 'Creating intelligent object detections...';
-                    detections = createSimulatedDetections(imageWidth, imageHeight);
+                    document.getElementById('loading').innerText = 'Object detection failed. Please try again.';
+                    setTimeout(() => {
+                        document.getElementById('loading').style.display = 'none';
+                    }, 3000);
+                    return;
                 }
 
                 drawDetections(detections, detectionCanvas, imageWidth, imageHeight);
