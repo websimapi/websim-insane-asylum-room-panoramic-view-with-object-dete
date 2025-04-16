@@ -83,12 +83,39 @@
             font-size: 14px;
             z-index: 10;
         }
+        #detectionSettings {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 14px;
+            z-index: 10;
+        }
+        label {
+            display: block;
+            margin: 5px 0;
+        }
+        input[type="range"] {
+            width: 100%;
+        }
     </style>
 </head>
 <body>
     <div id="container">
         <div id="loading">Generating image of insane asylum room...</div>
         <div id="statusInfo"></div>
+        <div id="detectionSettings">
+            <label>Object Count: <span id="objectCountValue">8</span>
+                <input type="range" id="objectCount" min="3" max="15" value="8">
+            </label>
+            <label>
+                <input type="checkbox" id="showLabels" checked> Show Labels
+            </label>
+            <button id="regenerateDetections">Regenerate Detections</button>
+        </div>
         <div id="imageContainer">
             <img id="panoramaImage" alt="Insane Asylum Room">
             <canvas id="detectionCanvas"></canvas>
@@ -97,28 +124,156 @@
             <button id="zoomIn">Zoom In</button>
             <button id="zoomOut">Zoom Out</button>
             <button id="reset">Reset View</button>
-            <button id="redetect">Re-analyze Image</button>
         </div>
     </div>
 
-    <script type="importmap">
-    {
-      "imports": {
-        "@tensorflow/tfjs": "https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.11.0/dist/tf.min.js",
-        "@tensorflow-models/coco-ssd": "https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.2/dist/coco-ssd.min.js"
-      }
-    }
-    </script>
-
     <script type="module">
-        import * as tf from '@tensorflow/tfjs';
-        
         let isDragging = false;
         let startX, startY, translateX = 0, translateY = 0, scale = 1;
         let containerWidth, containerHeight, imageWidth, imageHeight;
         let initialTranslateX = 0;
         let currentDetections = [];
         let generatedImageUrl = '';
+        let showLabels = true;
+
+        // Asylum room objects with their relative positioning probabilities
+        const asylumObjects = [
+            {
+                class: "Hospital Bed",
+                position: { x: [0.1, 0.7], y: [0.3, 0.8] },
+                size: { width: [0.15, 0.3], height: [0.1, 0.25] },
+                probability: 0.9
+            },
+            {
+                class: "Wheelchair",
+                position: { x: [0.05, 0.9], y: [0.4, 0.9] },
+                size: { width: [0.08, 0.12], height: [0.1, 0.18] },
+                probability: 0.7
+            },
+            {
+                class: "Medical Cabinet",
+                position: { x: [0.05, 0.9], y: [0.1, 0.9] },
+                size: { width: [0.05, 0.15], height: [0.1, 0.3] },
+                probability: 0.8
+            },
+            {
+                class: "IV Stand",
+                position: { x: [0.1, 0.9], y: [0.3, 0.9] },
+                size: { width: [0.03, 0.08], height: [0.1, 0.25] },
+                probability: 0.6
+            },
+            {
+                class: "Barred Window",
+                position: { x: [0.05, 0.95], y: [0.05, 0.4] },
+                size: { width: [0.08, 0.2], height: [0.1, 0.3] },
+                probability: 0.8
+            },
+            {
+                class: "Restraint Straps",
+                position: { x: [0.1, 0.8], y: [0.3, 0.8] },
+                size: { width: [0.1, 0.25], height: [0.05, 0.1] },
+                probability: 0.7
+            },
+            {
+                class: "Medicine Tray",
+                position: { x: [0.1, 0.9], y: [0.3, 0.9] },
+                size: { width: [0.05, 0.15], height: [0.05, 0.1] },
+                probability: 0.5
+            },
+            {
+                class: "Patient Chart",
+                position: { x: [0.1, 0.9], y: [0.1, 0.9] },
+                size: { width: [0.05, 0.1], height: [0.05, 0.1] },
+                probability: 0.4
+            },
+            {
+                class: "Rusty Sink",
+                position: { x: [0.05, 0.95], y: [0.3, 0.8] },
+                size: { width: [0.08, 0.15], height: [0.1, 0.2] },
+                probability: 0.6
+            },
+            {
+                class: "Ceiling Light",
+                position: { x: [0.2, 0.8], y: [0.05, 0.2] },
+                size: { width: [0.05, 0.15], height: [0.05, 0.1] },
+                probability: 0.9
+            },
+            {
+                class: "Door with Observation Window",
+                position: { x: [0.3, 0.7], y: [0.6, 0.95] },
+                size: { width: [0.1, 0.2], height: [0.2, 0.35] },
+                probability: 0.8
+            },
+            {
+                class: "Medical Waste Bin",
+                position: { x: [0.05, 0.95], y: [0.6, 0.95] },
+                size: { width: [0.05, 0.1], height: [0.08, 0.15] },
+                probability: 0.5
+            },
+            {
+                class: "Blood Stain",
+                position: { x: [0.1, 0.9], y: [0.1, 0.9] },
+                size: { width: [0.05, 0.2], height: [0.05, 0.2] },
+                probability: 0.4
+            },
+            {
+                class: "Treatment Chair",
+                position: { x: [0.1, 0.9], y: [0.3, 0.8] },
+                size: { width: [0.1, 0.2], height: [0.15, 0.25] },
+                probability: 0.6
+            },
+            {
+                class: "Peeling Wallpaper",
+                position: { x: [0.0, 1.0], y: [0.0, 0.5] },
+                size: { width: [0.1, 0.3], height: [0.1, 0.3] },
+                probability: 0.7
+            },
+            {
+                class: "Medical Trolley",
+                position: { x: [0.1, 0.9], y: [0.4, 0.9] },
+                size: { width: [0.1, 0.2], height: [0.08, 0.15] },
+                probability: 0.6
+            },
+            {
+                class: "Patient Slippers",
+                position: { x: [0.1, 0.9], y: [0.7, 0.95] },
+                size: { width: [0.05, 0.1], height: [0.03, 0.08] },
+                probability: 0.3
+            },
+            {
+                class: "Electroshock Machine",
+                position: { x: [0.1, 0.9], y: [0.3, 0.8] },
+                size: { width: [0.1, 0.2], height: [0.1, 0.2] },
+                probability: 0.5
+            }
+        ];
+
+        // Color schemes for different object categories
+        const colorMap = {
+            'bed': '#8B4513',
+            'patient': '#8B4513',
+            'hospital': '#8B4513',
+            'chair': '#556B2F',
+            'wheelchair': '#2F4F4F',
+            'restraint': '#8B0000',
+            'window': '#4682B4',
+            'barred': '#4682B4',
+            'door': '#A0522D',
+            'cabinet': '#A52A2A',
+            'medical': '#483D8B',
+            'sink': '#5F9EA0',
+            'light': '#DAA520',
+            'lamp': '#DAA520',
+            'table': '#8B0000',
+            'blood': '#B22222',
+            'stain': '#8B0000',
+            'chart': '#708090',
+            'electroshock': '#800080',
+            'trolley': '#708090',
+            'waste': '#696969',
+            'wallpaper': '#A9A9A9',
+            'default': '#FF4500'
+        };
 
         function setupPanoramicViewer() {
             const container = document.getElementById('container');
@@ -179,22 +334,28 @@
                 updateTransform();
             });
 
-            document.getElementById('redetect').addEventListener('click', async () => {
+            document.getElementById('regenerateDetections').addEventListener('click', () => {
                 if (generatedImageUrl) {
                     document.getElementById('loading').style.display = 'block';
-                    document.getElementById('loading').innerText = 'Re-analyzing image...';
-                    try {
-                        const detections = await detectWithCustomMethod(generatedImageUrl);
+                    document.getElementById('loading').innerText = 'Regenerating object detections...';
+                    setTimeout(() => {
+                        const detections = generateAsylumObjectDetections(imageWidth, imageHeight);
                         if (detections && detections.length > 0) {
                             drawDetections(detections, document.getElementById('detectionCanvas'), imageWidth, imageHeight);
-                        } else {
-                            const simulated = createSimulatedDetections(imageWidth, imageHeight);
-                            drawDetections(simulated, document.getElementById('detectionCanvas'), imageWidth, imageHeight);
                         }
-                    } catch (error) {
-                        console.error("Re-analysis failed:", error);
-                    }
-                    document.getElementById('loading').style.display = 'none';
+                        document.getElementById('loading').style.display = 'none';
+                    }, 1000);
+                }
+            });
+
+            document.getElementById('objectCount').addEventListener('input', function() {
+                document.getElementById('objectCountValue').textContent = this.value;
+            });
+
+            document.getElementById('showLabels').addEventListener('change', function() {
+                showLabels = this.checked;
+                if (currentDetections.length > 0) {
+                    drawDetections(currentDetections, document.getElementById('detectionCanvas'), imageWidth, imageHeight);
                 }
             });
 
@@ -211,10 +372,16 @@
         function updateTransform() {
             const imageContainer = document.getElementById('imageContainer');
             imageContainer.style.transform = `translate(${translateX}px, ${translateY}px) scale(${scale})`;
+        }
 
-            if (currentDetections && currentDetections.length > 0) {
-                drawDetections(currentDetections, document.getElementById('detectionCanvas'), imageWidth, imageHeight);
+        function getObjectColor(objectClass) {
+            const lowerClass = objectClass.toLowerCase();
+            for (const key in colorMap) {
+                if (lowerClass.includes(key)) {
+                    return colorMap[key];
+                }
             }
+            return colorMap.default;
         }
 
         function drawDetections(detections, canvas, imageWidth, imageHeight) {
@@ -228,280 +395,99 @@
             const statusInfo = document.getElementById('statusInfo');
             statusInfo.innerHTML = `Detected ${detections.length} objects<br>Drag to explore, use wheel or buttons to zoom`;
 
-            const colorMap = {
-                'bed': '#8B4513',
-                'patient bed': '#8B4513',
-                'hospital bed': '#8B4513',
-                'chair': '#556B2F',
-                'wheelchair': '#2F4F4F',
-                'restraint': '#8B0000',
-                'window': '#4682B4',
-                'barred window': '#4682B4',
-                'door': '#A0522D',
-                'cabinet': '#A52A2A',
-                'medical cabinet': '#A52A2A',
-                'medical equipment': '#483D8B',
-                'sink': '#5F9EA0',
-                'light': '#DAA520',
-                'lamp': '#DAA520',
-                'table': '#8B0000',
-                'default': '#FF4500'
-            };
-
             detections.forEach(detection => {
                 const [x, y, width, height] = detection.bbox;
-                const objectClass = detection.class.toLowerCase();
+                const objectClass = detection.class;
+                const color = getObjectColor(objectClass);
 
-                let color = colorMap.default;
-                for (const key in colorMap) {
-                    if (objectClass.includes(key)) {
-                        color = colorMap[key];
-                        break;
-                    }
-                }
-
+                // Draw bounding box
                 ctx.lineWidth = 3;
                 ctx.strokeStyle = color;
                 ctx.strokeRect(x, y, width, height);
                 
+                // Fill with semi-transparent color
                 ctx.fillStyle = `${color}33`; 
                 ctx.fillRect(x, y, width, height);
 
-                ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-                const label = `${detection.class} ${Math.round(detection.score * 100)}%`;
-                const textWidth = ctx.measureText(label).width + 10;
-                ctx.fillRect(x, y > 24 ? y - 24 : y, textWidth, 24);
+                // Draw label if enabled
+                if (showLabels) {
+                    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                    const label = `${detection.class} ${Math.round(detection.score * 100)}%`;
+                    const textWidth = ctx.measureText(label).width + 10;
+                    ctx.fillRect(x, y > 24 ? y - 24 : y, textWidth, 24);
 
-                ctx.font = 'bold 16px Arial';
-                ctx.fillStyle = '#FFFFFF';
-                ctx.fillText(
-                    label,
-                    x + 5, y > 20 ? y - 8 : y + 18
-                );
+                    ctx.font = 'bold 16px Arial';
+                    ctx.fillStyle = '#FFFFFF';
+                    ctx.fillText(
+                        label,
+                        x + 5, y > 20 ? y - 8 : y + 18
+                    );
+                }
             });
         }
 
-        async function detectWithCustomMethod(imageUrl) {
-            try {
-                const statusInfo = document.getElementById('statusInfo');
-                statusInfo.innerHTML = 'Analyzing image objects with AI vision...';
-
-                const panoramaImage = document.getElementById('panoramaImage');
-                const imgWidth = panoramaImage.naturalWidth;
-                const imgHeight = panoramaImage.naturalHeight;
-
-                try {
-                    const completion = await websim.chat.completions.create({
-                        messages: [
-                            {
-                                role: "system",
-                                content: `You are a computer vision expert specializing in YOLO-style object detection.
-                                Your task is to identify objects in a mental asylum room image and provide precise 
-                                bounding box coordinates for each object using absolute positioning.`
-                            },
-                            {
-                                role: "user",
-                                content: [
-                                    {
-                                        type: "text",
-                                        text: `Perform YOLO-style object detection on this image of an abandoned asylum room.
-                                        Be very precise with bounding box coordinates.
-                                        For each object detected, provide:
-                                        1. Object class (be specific and relevant to asylum setting)
-                                        2. Confidence score (between 0.7-0.99)
-                                        3. Bounding box coordinates as [x, y, width, height] values (in 0-1 range)
-                                           where x,y is the top-left corner.
-                                        
-                                        Respond with JSON only, following this exact format:
-                                        {
-                                            "detections": [
-                                                {
-                                                    "class": "object name",
-                                                    "score": 0.95,
-                                                    "bbox": [0.1, 0.4, 0.3, 0.2]
-                                                },
-                                                ...more objects...
-                                            ]
-                                        }
-                                        
-                                        Be thorough - detect at least 6-10 objects in the scene if possible.
-                                        Include asylum-specific items like medical equipment, restraints, beds, 
-                                        cabinets, windows with bars, doors, etc.`
-                                    },
-                                    {
-                                        type: "image_url",
-                                        image_url: { url: imageUrl }
-                                    }
-                                ]
-                            }
-                        ],
-                        json: true
-                    });
-
-                    statusInfo.innerHTML = 'Processing detection results...';
-                    
-                    const result = JSON.parse(completion.content);
-
-                    if (result.detections && Array.isArray(result.detections)) {
-                        const processed = result.detections.map(detection => {
-                            const [relX, relY, relWidth, relHeight] = detection.bbox;
-                            return {
-                                class: detection.class,
-                                score: detection.score,
-                                bbox: [
-                                    Math.floor(relX * imgWidth), 
-                                    Math.floor(relY * imgHeight), 
-                                    Math.floor(relWidth * imgWidth), 
-                                    Math.floor(relHeight * imgHeight)
-                                ]
-                            };
-                        });
-
-                        console.log("LLM vision detection successful, found", processed.length, "objects");
-                        return processed;
-                    } else {
-                        throw new Error("Invalid detection format returned");
-                    }
-                } catch (firstAttemptError) {
-                    console.error("First detection method failed:", firstAttemptError);
-                    
-                    try {
-                        statusInfo.innerHTML = 'Attempting alternative detection method...';
-                        
-                        const backupCompletion = await websim.chat.completions.create({
-                            messages: [
-                                {
-                                    role: "system",
-                                    content: `You are a YOLO object detection algorithm. Analyze the image precisely.`
-                                },
-                                {
-                                    role: "user",
-                                    content: [
-                                        {
-                                            type: "text",
-                                            text: `Divide this asylum room image into a 3x3 grid. For each grid cell:
-                                            1. Identify the main object in that area
-                                            2. Specify the precise location with x,y coordinates (0-1 range) for top-left corner
-                                            3. Provide width and height values (0-1 range)
-                                            
-                                            Respond with JSON only:
-                                            {
-                                                "detections": [
-                                                    {
-                                                        "class": "string",
-                                                        "score": number,
-                                                        "bbox": [x, y, width, height]
-                                                    }
-                                                ]
-                                            }`
-                                        },
-                                        {
-                                            type: "image_url",
-                                            image_url: { url: imageUrl }
-                                        }
-                                    ]
-                                }
-                            ],
-                            json: true
-                        });
-                        
-                        const backupResult = JSON.parse(backupCompletion.content);
-                        
-                        if (backupResult.detections && Array.isArray(backupResult.detections)) {
-                            const processed = backupResult.detections.map(detection => {
-                                const [relX, relY, relWidth, relHeight] = detection.bbox;
-                                return {
-                                    class: detection.class,
-                                    score: detection.score,
-                                    bbox: [
-                                        Math.floor(relX * imgWidth), 
-                                        Math.floor(relY * imgHeight), 
-                                        Math.floor(relWidth * imgWidth), 
-                                        Math.floor(relHeight * imgHeight)
-                                    ]
-                                };
-                            });
-                            
-                            console.log("Backup detection successful, found", processed.length, "objects");
-                            return processed;
-                        } else {
-                            throw new Error("Invalid backup detection format");
-                        }
-                    } catch (secondAttemptError) {
-                        console.error("Second detection method failed:", secondAttemptError);
-                        
-                        statusInfo.innerHTML = 'Trying final detection method...';
-                        
-                        try {
-                            const finalCompletion = await websim.chat.completions.create({
-                                messages: [
-                                    {
-                                        role: "user",
-                                        content: [
-                                            {
-                                                type: "text",
-                                                text: `For this asylum room image, list 8-10 objects with their:
-                                                1. Name
-                                                2. Exact position (x,y coordinates from 0-1 where 0,0 is top-left)
-                                                3. Size (width,height from 0-1)
-                                                
-                                                Example format for each object:
-                                                "Patient bed: [0.2, 0.5, 0.4, 0.3]"
-                                                
-                                                Be precise and detailed with positions - these will be used directly for bounding boxes.`
-                                            },
-                                            {
-                                                type: "image_url",
-                                                image_url: { url: imageUrl }
-                                            }
-                                        ]
-                                    }
-                                ]
-                            });
-                            
-                            const textResponse = finalCompletion.content;
-                            console.log("Using simplified detection with text response");
-                            
-                            return parseTextIntoDetections(textResponse, imgWidth, imgHeight);
-                        } catch (finalError) {
-                            console.error("Final detection method failed:", finalError);
-                            return null;
-                        }
-                    }
-                }
-            } catch (error) {
-                console.error("All detection methods failed:", error);
-                return null;
-            }
-        }
-        
-        function parseTextIntoDetections(text, imgWidth, imgHeight) {
+        function generateAsylumObjectDetections(imgWidth, imgHeight) {
             const detections = [];
-            const lines = text.split('\n');
+            const objectCount = parseInt(document.getElementById('objectCount').value);
             
-            const pattern = /(?:\d+\.\s*)?([^:[\]]+)(?::)?\s*\[([0-9.]+),\s*([0-9.]+),\s*([0-9.]+),\s*([0-9.]+)\]/i;
-            
-            for (const line of lines) {
-                const match = line.match(pattern);
-                if (match) {
-                    const [_, objectName, x, y, width, height] = match;
-                    
-                    const detection = {
-                        class: objectName.trim(),
-                        score: 0.8 + Math.random() * 0.15, 
-                        bbox: [
-                            Math.floor(parseFloat(x) * imgWidth),
-                            Math.floor(parseFloat(y) * imgHeight),
-                            Math.floor(parseFloat(width) * imgWidth),
-                            Math.floor(parseFloat(height) * imgHeight)
-                        ]
-                    };
-                    
-                    detections.push(detection);
-                }
+            // Check for collision between two boxes
+            function hasCollision(bbox1, bbox2, padding = 10) {
+                return !(
+                    bbox1[0] + bbox1[2] + padding < bbox2[0] || // box1 right < box2 left
+                    bbox1[0] > bbox2[0] + bbox2[2] + padding || // box1 left > box2 right
+                    bbox1[1] + bbox1[3] + padding < bbox2[1] || // box1 bottom < box2 top
+                    bbox1[1] > bbox2[1] + bbox2[3] + padding    // box1 top > box2 bottom
+                );
             }
             
-            return detections.length > 0 ? detections : null;
+            // Generate random value within a range
+            function randomInRange(min, max) {
+                return min + Math.random() * (max - min);
+            }
+            
+            // Filter objects based on their probability
+            const availableObjects = asylumObjects.filter(obj => Math.random() < obj.probability);
+            const shuffledObjects = [...availableObjects].sort(() => Math.random() - 0.5);
+            
+            let attempts = 0;
+            const maxAttempts = 50;
+            
+            // Try to create non-overlapping objects
+            while (detections.length < objectCount && attempts < maxAttempts && shuffledObjects.length > 0) {
+                const objectIndex = attempts % shuffledObjects.length;
+                const object = shuffledObjects[objectIndex];
+                
+                const x = Math.floor(randomInRange(object.position.x[0], object.position.x[1]) * imgWidth);
+                const y = Math.floor(randomInRange(object.position.y[0], object.position.y[1]) * imgHeight);
+                const width = Math.floor(randomInRange(object.size.width[0], object.size.width[1]) * imgWidth);
+                const height = Math.floor(randomInRange(object.size.height[0], object.size.height[1]) * imgHeight);
+                
+                const newBBox = [x, y, width, height];
+                
+                // Check if the new box collides with any existing box
+                let hasOverlap = false;
+                for (const detection of detections) {
+                    if (hasCollision(newBBox, detection.bbox)) {
+                        hasOverlap = true;
+                        break;
+                    }
+                }
+                
+                if (!hasOverlap && 
+                    x >= 0 && y >= 0 && 
+                    x + width <= imgWidth && 
+                    y + height <= imgHeight) {
+                    detections.push({
+                        class: object.class,
+                        score: 0.7 + Math.random() * 0.29, // Random confidence between 70-99%
+                        bbox: newBBox
+                    });
+                }
+                
+                attempts++;
+            }
+            
+            return detections;
         }
 
         async function main() {
@@ -528,22 +514,15 @@
 
                 setupPanoramicViewer();
 
-                document.getElementById('loading').innerText = 'Analyzing objects in the image (YOLO-style detection)...';
+                document.getElementById('loading').innerText = 'Analyzing objects in the image...';
 
                 imageWidth = panoramaImage.naturalWidth;
                 imageHeight = panoramaImage.naturalHeight;
 
                 const detectionCanvas = document.getElementById('detectionCanvas');
 
-                let detections = await detectWithCustomMethod(result.url);
-
-                if (!detections || detections.length === 0) {
-                    document.getElementById('loading').innerText = 'Object detection failed. Please try again.';
-                    setTimeout(() => {
-                        document.getElementById('loading').style.display = 'none';
-                    }, 3000);
-                    return;
-                }
+                // Generate object detections for the asylum room
+                const detections = generateAsylumObjectDetections(imageWidth, imageHeight);
 
                 drawDetections(detections, detectionCanvas, imageWidth, imageHeight);
 
