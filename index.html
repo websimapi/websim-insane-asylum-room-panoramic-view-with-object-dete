@@ -45,7 +45,9 @@
             top: 0;
             left: 0;
             height: 100%;
+            width: 100%;
             pointer-events: none;
+            transform-origin: center center;
         }
         .controls {
             position: absolute;
@@ -115,6 +117,7 @@
         let startX, startY, translateX = 0, translateY = 0, scale = 1;
         let containerWidth, containerHeight, imageWidth, imageHeight;
         let initialTranslateX = 0;
+        let currentDetections = [];
         
         // Setup panoramic viewing and drag functionality
         function setupPanoramicViewer() {
@@ -195,14 +198,23 @@
         function updateTransform() {
             const imageContainer = document.getElementById('imageContainer');
             imageContainer.style.transform = `translate(${translateX}px, ${translateY}px) scale(${scale})`;
+            
+            // Redraw detections when transform changes
+            if (currentDetections && currentDetections.length > 0) {
+                drawDetections(currentDetections, document.getElementById('detectionCanvas'), imageWidth, imageHeight);
+            }
         }
         
         // Draw outlines around detected objects
         function drawDetections(detections, canvas, imageWidth, imageHeight) {
             const ctx = canvas.getContext('2d');
+            // Set canvas dimensions to match the original image dimensions
             canvas.width = imageWidth;
             canvas.height = imageHeight;
             ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Save current detections for redrawing on transform
+            currentDetections = detections;
             
             // Update status display
             const statusInfo = document.getElementById('statusInfo');
@@ -218,14 +230,15 @@
                 
                 // Draw semi-transparent background for text
                 ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-                const textWidth = ctx.measureText(`${detection.class} ${Math.round(detection.score * 100)}%`).width + 10;
+                const label = `${detection.class} ${Math.round(detection.score * 100)}%`;
+                const textWidth = ctx.measureText(label).width + 10;
                 ctx.fillRect(x, y > 24 ? y - 24 : y, textWidth, 24);
                 
                 // Draw label
                 ctx.font = 'bold 16px Arial';
                 ctx.fillStyle = '#FFFFFF';
                 ctx.fillText(
-                    `${detection.class} ${Math.round(detection.score * 100)}%`,
+                    label,
                     x + 5, y > 20 ? y - 8 : y + 18
                 );
             });
@@ -266,6 +279,10 @@
                 const statusInfo = document.getElementById('statusInfo');
                 statusInfo.innerHTML = 'Trying alternative object detection method...';
                 
+                const panoramaImage = document.getElementById('panoramaImage');
+                const imgWidth = panoramaImage.naturalWidth;
+                const imgHeight = panoramaImage.naturalHeight;
+                
                 // Use the LLM to analyze the image
                 const completion = await websim.chat.completions.create({
                     messages: [
@@ -286,6 +303,7 @@
                                             }
                                         ]
                                     }
+                                    Where x,y is the top-left corner and width,height are the dimensions of the box.
                                     Use relative coordinates as fractions of image size (0-1).`,
                                 },
                                 {
@@ -301,19 +319,30 @@
                 let result;
                 try {
                     result = JSON.parse(completion.content);
-                    // Convert relative coordinates to actual pixel values
-                    const panoramaImage = document.getElementById('panoramaImage');
-                    const imgWidth = panoramaImage.naturalWidth;
-                    const imgHeight = panoramaImage.naturalHeight;
                     
                     if (result.detections && Array.isArray(result.detections)) {
+                        // Convert relative coordinates to actual pixel values
                         result.detections.forEach(detection => {
                             if (detection.bbox && detection.bbox.length === 4) {
                                 // Convert from relative [0-1] to pixel coordinates
-                                detection.bbox[0] = Math.floor(detection.bbox[0] * imgWidth);
-                                detection.bbox[1] = Math.floor(detection.bbox[1] * imgHeight);
-                                detection.bbox[2] = Math.floor(detection.bbox[2] * imgWidth);
-                                detection.bbox[3] = Math.floor(detection.bbox[3] * imgHeight);
+                                // Make sure we interpret these as [x, y, width, height]
+                                const [relX, relY, relWidth, relHeight] = detection.bbox;
+                                detection.bbox = [
+                                    Math.floor(relX * imgWidth), 
+                                    Math.floor(relY * imgHeight), 
+                                    Math.floor(relWidth * imgWidth), 
+                                    Math.floor(relHeight * imgHeight)
+                                ];
+                                
+                                // Validate the bbox values
+                                if (detection.bbox[0] < 0) detection.bbox[0] = 0;
+                                if (detection.bbox[1] < 0) detection.bbox[1] = 0;
+                                if (detection.bbox[0] + detection.bbox[2] > imgWidth) {
+                                    detection.bbox[2] = imgWidth - detection.bbox[0];
+                                }
+                                if (detection.bbox[1] + detection.bbox[3] > imgHeight) {
+                                    detection.bbox[3] = imgHeight - detection.bbox[1];
+                                }
                             }
                         });
                         return result.detections;
@@ -401,9 +430,15 @@
                         }
                     }
                     
-                    // Draw detection outlines
+                    // Set original image dimensions
+                    imageWidth = panoramaImage.naturalWidth;
+                    imageHeight = panoramaImage.naturalHeight;
+                    
+                    // Properly set up the detection canvas
                     const detectionCanvas = document.getElementById('detectionCanvas');
-                    drawDetections(detections, detectionCanvas, panoramaImage.naturalWidth, panoramaImage.naturalHeight);
+                    
+                    // Add the detections to the canvas
+                    drawDetections(detections, detectionCanvas, imageWidth, imageHeight);
                     
                 } catch (modelError) {
                     console.error("All detection methods failed:", modelError);
