@@ -102,14 +102,14 @@
     {
         "imports": {
             "@tensorflow/tfjs": "https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js",
-            "@tensorflow-models/coco-ssd": "https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.2/dist/coco-ssd.min.js"
+            "@tensorflow-models/coco-ssd": "https://cdn.skypack.dev/@tensorflow-models/coco-ssd@2.2.2"
         }
     }
     </script>
     
     <script type="module">
         import * as tf from '@tensorflow/tfjs';
-        import * as cocoSsd from '@tensorflow-models/coco-ssd';
+        import * as cocoSsdModule from '@tensorflow-models/coco-ssd';
 
         let isDragging = false;
         let startX, startY, translateX = 0, translateY = 0, scale = 1;
@@ -261,16 +261,24 @@
                 
                 // Load object detection model
                 document.getElementById('loading').innerText = 'Loading object detection model...';
-                const model = await cocoSsd.load();
                 
-                // Perform object detection
-                document.getElementById('loading').innerText = 'Detecting objects in the image...';
-                const detections = await model.detect(panoramaImage);
-                console.log("Detected objects:", detections);
-                
-                // Draw detection outlines
-                const detectionCanvas = document.getElementById('detectionCanvas');
-                drawDetections(detections, detectionCanvas, panoramaImage.naturalWidth, panoramaImage.naturalHeight);
+                try {
+                    // Use the correct method to load the COCO-SSD model
+                    const model = await cocoSsdModule.load();
+                    
+                    // Perform object detection
+                    document.getElementById('loading').innerText = 'Detecting objects in the image...';
+                    const detections = await model.detect(panoramaImage);
+                    console.log("Detected objects:", detections);
+                    
+                    // Draw detection outlines
+                    const detectionCanvas = document.getElementById('detectionCanvas');
+                    drawDetections(detections, detectionCanvas, panoramaImage.naturalWidth, panoramaImage.naturalHeight);
+                } catch (modelError) {
+                    console.error("Object detection error:", modelError);
+                    document.getElementById('statusInfo').innerHTML = 'Object detection failed, but image is viewable';
+                    document.getElementById('loading').style.display = 'none';
+                }
                 
                 // Hide loading indicator
                 document.getElementById('loading').style.display = 'none';
@@ -287,4 +295,3 @@
 <script defer src="https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516" integrity="sha512-8DS7rgIrAmghBFwoOTujcf6D9rXvH8xm8JQ1Ja01h9QX8EzXldiszufYa4IFfKdLUKTTrnSFXLDkUEOTrZQ8Qg==" data-cf-beacon='{"version":"2024.11.0","token":"4c6229722a6346bc8eb5cb0e5eae5d41","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
 </body>
 </html>
-
